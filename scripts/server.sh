@@ -19,7 +19,7 @@ error() { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 
 # --- Find CUDA 12 libs (system may have CUDA 13, vLLM needs 12) ---
 setup_cuda_env() {
-    local venv_lib="$WORKDIR/venv/lib/python3*/site-packages/nvidia"
+    local venv_lib="$WORKDIR/.venv/lib/python3*/site-packages/nvidia"
     local cuda_dirs=()
     for d in $venv_lib/*/lib; do
         [ -d "$d" ] && cuda_dirs+=("$d")
@@ -44,11 +44,11 @@ do_setup() {
     # Create venv
     mkdir -p "$WORKDIR"
     cd "$WORKDIR"
-    if [ ! -d "venv" ]; then
+    if [ ! -d ".venv" ]; then
         info "Creating Python venv ..."
-        uv venv venv
+        uv venv .venv
     fi
-    source venv/bin/activate
+    source .venv/bin/activate
 
     # Install vLLM + deps
     info "Installing vLLM and dependencies ..."
@@ -80,7 +80,7 @@ do_start() {
         rm -f "$PID_FILE"
     fi
 
-    source venv/bin/activate
+    source .venv/bin/activate
     setup_cuda_env
 
     info "Starting vLLM server ..."
@@ -92,11 +92,12 @@ do_start() {
         --language-model-only \
         --quantization bitsandbytes \
         --load-format bitsandbytes \
-        --max-model-len 8192 \
+        --max-model-len 15000 \
         --gpu-memory-utilization 0.9 \
         --port "$PORT" \
         --enable-auto-tool-choice \
         --tool-call-parser qwen3_coder \
+        --enable-prefix-caching \
         --host 0.0.0.0 \
         --enforce-eager \
         > "$LOG" 2>&1 &
