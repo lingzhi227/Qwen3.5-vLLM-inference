@@ -2,5 +2,11 @@ venv/
 __pycache__/
 *.pyc
 .DS_Store
-cwl_workspace/
-cwl_workspaces/
+
+# Runtime artifacts and traces
+**/cwl_workspace/
+**/cwl_workspaces/
+**/cwl_traces/
+*_trace.json
+cwl_trace.json
+trace.json
