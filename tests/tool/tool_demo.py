@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """
-Qwen3.5-9B Tool Calling Demo
+Qwen3.5 Tool Calling Demo
 - 3 tools: get_weather, calculate, web_search
 - Thinking mode enabled
 - Streaming output to terminal
 - Full trace captured to JSON
+
+Env vars:
+  VLLM_API_URL  - vLLM API base URL (default: http://localhost:8000/v1)
+  VLLM_MODEL    - Model name (default: Qwen/Qwen3.5-27B)
 """
 
 import json
@@ -16,17 +20,10 @@ from datetime import datetime
 from openai import OpenAI
 
 # ---------------------------------------------------------------------------
-# Config
+# Config (overridable via env vars)
 # ---------------------------------------------------------------------------
-BASE_URL = "http://localhost:8000/v1"
-MODEL = "Qwen/Qwen3.5-9B"
-SSH_TUNNEL_CMD = [
-    "ssh", "-p", "2222", "-i", "/Users/lingzhi/.ssh/id_ed25519",
-    "-f", "-N", "-L", "8000:localhost:8000",
-    "-o", "ExitOnForwardFailure=yes",
-    "-o", "ServerAliveInterval=30",
-    "lingzhi@108.41.63.249",
-]
+BASE_URL = os.environ.get("VLLM_API_URL", "http://localhost:8000/v1")
+MODEL = os.environ.get("VLLM_MODEL", "Qwen/Qwen3.5-27B")
 
 # ---------------------------------------------------------------------------
 # Tool implementations (fake but realistic)
@@ -335,33 +332,10 @@ def stream_chat(client: OpenAI, messages: list, trace: Trace, round_num: int):
 
 
 # ---------------------------------------------------------------------------
-# Ensure SSH tunnel
-# ---------------------------------------------------------------------------
-def ensure_tunnel():
-    """Make sure SSH tunnel to vLLM server is active."""
-    import socket
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        sock.settimeout(2)
-        sock.connect(("localhost", 8000))
-        sock.close()
-        print("✅ SSH tunnel active, vLLM server reachable")
-        return
-    except (ConnectionRefusedError, OSError):
-        pass
-
-    print("🔗 Creating SSH tunnel to vLLM server...")
-    subprocess.run(SSH_TUNNEL_CMD, check=True)
-    time.sleep(2)
-    print("✅ SSH tunnel created")
-
-
-# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 def main():
-    ensure_tunnel()
-
+    print(f"Connecting to: {BASE_URL}")
     client = OpenAI(base_url=BASE_URL, api_key="empty")
     trace = Trace()
 

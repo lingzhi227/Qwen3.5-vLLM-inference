@@ -10,3 +10,12 @@ __pycache__/
 *_trace.json
 cwl_trace.json
 trace.json
+
+# Test logs and runtime data
+test_logs/
+stress_multi_logs/
+stress_workspaces*/
+stress_results/
+vllm_server*.log
+.node_info*
+.server_pid*

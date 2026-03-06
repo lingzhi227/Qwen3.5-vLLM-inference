@@ -13,25 +13,16 @@ import os
 import subprocess
 import sys
 import time
-import socket
 from datetime import datetime
 from openai import OpenAI
 
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-BASE_URL = "http://localhost:8000/v1"
-MODEL = "Qwen/Qwen3.5-9B"
+BASE_URL = os.environ.get("VLLM_API_URL", "http://localhost:8000/v1")
+MODEL = os.environ.get("VLLM_MODEL", "Qwen/Qwen3.5-27B")
 WORK_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cwl_workspace")
-VENV_CWLTOOL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "venv", "bin", "cwltool")
-
-SSH_TUNNEL_CMD = [
-    "ssh", "-p", "2222", "-i", "/Users/lingzhi/.ssh/id_ed25519",
-    "-f", "-N", "-L", "8000:localhost:8000",
-    "-o", "ExitOnForwardFailure=yes",
-    "-o", "ServerAliveInterval=30",
-    "lingzhi@108.41.63.249",
-]
+CWLTOOL_BIN = os.environ.get("CWLTOOL_BIN", "cwltool")
 
 # ---------------------------------------------------------------------------
 # Tool implementations — real terminal interaction
@@ -52,7 +43,7 @@ def write_file(path: str, content: str) -> dict:
 def run_command(command: str) -> dict:
     """Run a shell command in the workspace directory."""
     # Replace bare 'cwltool' with our venv path
-    command = command.replace("cwltool", VENV_CWLTOOL)
+    command = command.replace("cwltool", CWLTOOL_BIN)
     try:
         result = subprocess.run(
             command,
@@ -358,29 +349,9 @@ def stream_chat(client: OpenAI, messages: list, trace: Trace, round_num: int):
 
 
 # ---------------------------------------------------------------------------
-# SSH tunnel
-# ---------------------------------------------------------------------------
-def ensure_tunnel():
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        sock.settimeout(2)
-        sock.connect(("localhost", 8000))
-        sock.close()
-        print("[OK] SSH tunnel active")
-        return
-    except (ConnectionRefusedError, OSError):
-        pass
-    print("[...] Creating SSH tunnel...")
-    subprocess.run(SSH_TUNNEL_CMD, check=True)
-    time.sleep(2)
-    print("[OK] SSH tunnel created")
-
-
-# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 def main():
-    ensure_tunnel()
 
     # Prepare workspace
     os.makedirs(WORK_DIR, exist_ok=True)
