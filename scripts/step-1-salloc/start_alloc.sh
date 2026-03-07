@@ -4,11 +4,11 @@
 # Usage: bash step1_alloc.sh
 #
 # After allocation, node info is saved and you get an interactive shell.
-# Then run: bash scripts/step2_serve.sh
+# Then run: bash scripts/step-2-vLLM/start_serve_27B.sh
 # =============================================================================
 set -euo pipefail
 
-WORKDIR="/pscratch/sd/l/lingzhi/Qwen3.5-vLLM-inference"
+WORKDIR="/pscratch/sd/l/lingzhi/Projects/Qwen3.5-vLLM-inference"
 NODE_INFO="$WORKDIR/.node_info"
 
 # Colors
@@ -26,7 +26,7 @@ rm -f "$NODE_INFO"
 
 salloc -N 1 -q interactive -t 04:00:00 -C "gpu&hbm80g" -A m5242_g \
   bash -c '
-    WORKDIR="/pscratch/sd/l/lingzhi/Qwen3.5-vLLM-inference"
+    WORKDIR="/pscratch/sd/l/lingzhi/Projects/Qwen3.5-vLLM-inference"
     NODE_INFO="$WORKDIR/.node_info"
 
     # Save node info
@@ -50,7 +50,7 @@ EOF
     srun -N 1 -n 1 --gpus 4 bash -c "nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader" 2>/dev/null || echo "(GPU check skipped)"
     echo ""
     echo "Next step:"
-    echo "  cd $WORKDIR && bash scripts/step2_serve.sh"
+    echo "  cd $WORKDIR && bash scripts/step-2-vLLM/start_serve_27B.sh"
     echo ""
 
     # Drop into interactive shell (inherits SLURM env vars)

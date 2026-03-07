@@ -2,13 +2,13 @@
 # =============================================================================
 # Stress test: run N concurrent CWL agents against vLLM server
 # Usage:
-#   bash scripts/test_stress.sh              # default: ramp up 1,3,5,10,15
-#   bash scripts/test_stress.sh 5            # test with 5 agents
-#   bash scripts/test_stress.sh 1 3 5 10 15  # custom ramp-up levels
+#   bash scripts/step-4-test-stress/test_stress.sh              # default: ramp up 1,3,5,10,15
+#   bash scripts/step-4-test-stress/test_stress.sh 5            # test with 5 agents
+#   bash scripts/step-4-test-stress/test_stress.sh 1 3 5 10 15  # custom ramp-up levels
 # =============================================================================
 set -euo pipefail
 
-WORKDIR="/pscratch/sd/l/lingzhi/Qwen3.5-vLLM-inference"
+WORKDIR="/pscratch/sd/l/lingzhi/Projects/Qwen3.5-vLLM-inference"
 NODE_INFO="$WORKDIR/.node_info"
 
 # Get API URL from node info

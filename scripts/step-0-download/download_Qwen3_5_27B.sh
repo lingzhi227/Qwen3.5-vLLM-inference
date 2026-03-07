@@ -2,7 +2,7 @@
 # =============================================================================
 # Download Qwen3.5-27B model to local pscratch
 # Run on login node (has internet). No GPU needed.
-# Usage: bash scripts/download_model.sh
+# Usage: bash scripts/step-0-download/download_Qwen3_5_27B.sh
 # =============================================================================
 set -euo pipefail
 

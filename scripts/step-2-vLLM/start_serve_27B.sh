@@ -1,7 +1,7 @@
 #!/bin/bash
 # =============================================================================
 # Step 2: Start vLLM server with Qwen3.5-27B on the allocated GPU node
-# Usage: bash scripts/step2_serve.sh [--fp8]
+# Usage: bash scripts/step-2-vLLM/start_serve_27B.sh [--fp8]
 #
 # Prerequisites: run step1_alloc.sh first (need active salloc session)
 #
@@ -12,12 +12,12 @@
 #                  = ~16K tokens/agent with 15 concurrent agents
 #   For tool-calling agents (~4-8K tokens each), BF16 fits comfortably.
 #
-# If BF16 OOMs, re-run with: bash scripts/step2_serve.sh --fp8
+# If BF16 OOMs, re-run with: bash scripts/step-2-vLLM/start_serve_27B.sh --fp8
 #   FP8 weights:   ~28 GB → ~44 GB for KV → ~688K tokens total
 # =============================================================================
 set -euo pipefail
 
-WORKDIR="/pscratch/sd/l/lingzhi/Qwen3.5-vLLM-inference"
+WORKDIR="/pscratch/sd/l/lingzhi/Projects/Qwen3.5-vLLM-inference"
 NODE_INFO="$WORKDIR/.node_info"
 MODEL_HF="Qwen/Qwen3.5-27B"
 LOCAL_MODEL_DIR="/pscratch/sd/l/lingzhi/models/Qwen3.5-27B"
@@ -41,6 +41,11 @@ error() { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 # ---------------------------------------------------------------------------
 # Check prerequisites
 # ---------------------------------------------------------------------------
+if [ -z "${SLURM_JOB_ID:-}" ] && [ -f "$NODE_INFO" ]; then
+    source "$NODE_INFO"
+    info "Read node info from $NODE_INFO"
+fi
+
 if [ -z "${SLURM_JOB_ID:-}" ]; then
     error "No active SLURM allocation. Run step1_alloc.sh first."
 fi
@@ -96,7 +101,7 @@ else
     MODEL="$MODEL_HF"
     warn "Local model not found at $LOCAL_MODEL_DIR ($SAFETENSOR_COUNT/11 shards)"
     warn "Will download from HuggingFace on first run. To pre-download:"
-    warn "  bash scripts/download_model.sh"
+    warn "  bash scripts/step-0-download/download_Qwen3_5_27B.sh"
     echo ""
 fi
 
@@ -132,7 +137,7 @@ fi
 info "Starting vLLM server on $NODE ..."
 info "Log: $LOG"
 
-srun -N 1 -n 1 --gpus 1 \
+srun --jobid="$SLURM_JOB_ID" -N 1 -n 1 --gpus 1 \
     shifter --image="$VLLM_IMAGE" \
     "${VLLM_ARGS[@]}" \
     > "$LOG" 2>&1 &
@@ -168,7 +173,7 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
         echo ""
 
         # Show GPU usage
-        srun -N 1 -n 1 --overlap bash -c "nvidia-smi --query-gpu=index,memory.used,memory.total,utilization.gpu --format=csv,noheader" 2>/dev/null || true
+        srun --jobid="$SLURM_JOB_ID" -N 1 -n 1 --overlap --gpus 1 bash -c "nvidia-smi --query-gpu=index,memory.used,memory.total,utilization.gpu --format=csv,noheader" 2>/dev/null || true
         echo ""
 
         # Save API URL
@@ -182,7 +187,7 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
         echo "  PID:  $SERVER_PID"
         echo "  Log:  $LOG"
         echo ""
-        echo "  Test: bash scripts/test_tool_demo.sh"
+        echo "  Test: bash scripts/step-3-test-agentic/test_tool_demo.sh"
         echo "  Stop: kill $SERVER_PID"
         echo -e "==========================================${NC}"
         exit 0

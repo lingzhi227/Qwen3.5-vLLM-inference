@@ -1,11 +1,11 @@
 #!/bin/bash
 # =============================================================================
 # Test the vLLM server with cwl_agent_test.py
-# Usage: bash scripts/test_cwl_agent.sh
+# Usage: bash scripts/step-3-test-agentic/test_cwl_agent.sh
 # =============================================================================
 set -euo pipefail
 
-WORKDIR="/pscratch/sd/l/lingzhi/Qwen3.5-vLLM-inference"
+WORKDIR="/pscratch/sd/l/lingzhi/Projects/Qwen3.5-vLLM-inference"
 NODE_INFO="$WORKDIR/.node_info"
 
 # Get API URL from node info or SLURM env

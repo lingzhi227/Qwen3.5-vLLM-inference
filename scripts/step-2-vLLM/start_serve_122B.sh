@@ -15,7 +15,7 @@
 # =============================================================================
 set -euo pipefail
 
-WORKDIR="/pscratch/sd/l/lingzhi/Qwen3.5-vLLM-inference"
+WORKDIR="/pscratch/sd/l/lingzhi/Projects/Qwen3.5-vLLM-inference"
 NODE_INFO="$WORKDIR/.node_info_122B"
 LOCAL_MODEL_DIR="/pscratch/sd/l/lingzhi/models/Qwen3.5-122B-A10B"
 PORT=8000

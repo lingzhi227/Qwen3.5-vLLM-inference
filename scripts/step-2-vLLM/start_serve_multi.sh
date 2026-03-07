@@ -3,12 +3,12 @@
 # Step 2 (Multi-GPU): Start 4 vLLM servers on all 4 A100 GPUs
 # Each server runs on a separate GPU and port (8000-8003)
 #
-# Usage: bash scripts/step2_serve_multi.sh [--fp8]
-# Prerequisites: run step1_alloc.sh first (need active salloc session)
+# Usage: bash scripts/step-2-vLLM/step2_serve_multi.sh [--fp8]
+# Prerequisites: run step-1-salloc/start_alloc.sh first (need active salloc session)
 # =============================================================================
 set -euo pipefail
 
-WORKDIR="/pscratch/sd/l/lingzhi/Qwen3.5-vLLM-inference"
+WORKDIR="/pscratch/sd/l/lingzhi/Projects/Qwen3.5-vLLM-inference"
 NODE_INFO="$WORKDIR/.node_info_multi"
 LOCAL_MODEL_DIR="/pscratch/sd/l/lingzhi/models/Qwen3.5-27B"
 VLLM_IMAGE="vllm/vllm-openai:qwen3_5"
@@ -27,9 +27,15 @@ info()  { echo -e "${GREEN}[INFO]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 error() { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 
-# Check prerequisites
+# Check prerequisites — read from .node_info if not in salloc shell
+ALLOC_INFO="$WORKDIR/.node_info"
+if [ -z "${SLURM_JOB_ID:-}" ] && [ -f "$ALLOC_INFO" ]; then
+    source "$ALLOC_INFO"
+    info "Read node info from $ALLOC_INFO"
+fi
+
 if [ -z "${SLURM_JOB_ID:-}" ]; then
-    error "No active SLURM allocation. Run step1_alloc.sh first."
+    error "No active SLURM allocation. Run step-1-salloc/start_alloc.sh first."
 fi
 
 NODE="$SLURM_NODELIST"
@@ -42,7 +48,7 @@ if $USE_FP8; then
 else
     echo "  Precision: BF16 (full)"
 fi
-echo "  Context: 128K tokens"
+echo "  Context: 256K tokens"
 echo -e "==========================================${NC}"
 echo ""
 
@@ -69,7 +75,7 @@ fi
 COMMON_ARGS=(
     --model "$MODEL"
     --language-model-only
-    --max-model-len 131072
+    --max-model-len 262144
     --gpu-memory-utilization 0.90
     --host 0.0.0.0
     --dtype bfloat16
@@ -95,7 +101,7 @@ for gpu_id in $(seq 0 $((NUM_GPUS-1))); do
 
     info "Starting GPU $gpu_id on port $port (log: $log)"
 
-    srun --overlap -N 1 -n 1 --gpus=4 \
+    srun --jobid="$SLURM_JOB_ID" --overlap -N 1 -n 1 --gpus=4 \
         shifter --image="$VLLM_IMAGE" \
         bash -c "CUDA_VISIBLE_DEVICES=$gpu_id python3 -m vllm.entrypoints.openai.api_server ${COMMON_ARGS[*]} --port $port" \
         > "$log" 2>&1 &
@@ -169,6 +175,6 @@ for gpu_id in $(seq 0 $((NUM_GPUS-1))); do
     echo "  GPU $gpu_id: http://${NODE}:${port}/v1"
 done
 echo ""
-echo "  Test: bash scripts/test_stress_multi.sh"
+echo "  Test: bash scripts/step-4-test-stress/test_stress_multi.sh"
 echo "  Stop: kill ${PIDS[*]}"
 echo -e "==========================================${NC}"

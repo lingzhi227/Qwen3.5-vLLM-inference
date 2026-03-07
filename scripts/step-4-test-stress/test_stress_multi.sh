@@ -4,13 +4,13 @@
 # Runs parallel stress tests, one per GPU, then aggregates results
 #
 # Usage:
-#   bash scripts/test_stress_multi.sh              # default: 50 agents per GPU (200 total)
-#   bash scripts/test_stress_multi.sh 30            # 30 per GPU (120 total)
-#   bash scripts/test_stress_multi.sh 10 30 50 80   # ramp-up per GPU
+#   bash scripts/step-4-test-stress/test_stress_multi.sh              # default: 50 agents per GPU (200 total)
+#   bash scripts/step-4-test-stress/test_stress_multi.sh 30            # 30 per GPU (120 total)
+#   bash scripts/step-4-test-stress/test_stress_multi.sh 10 30 50 80   # ramp-up per GPU
 # =============================================================================
 set -euo pipefail
 
-WORKDIR="/pscratch/sd/l/lingzhi/Qwen3.5-vLLM-inference"
+WORKDIR="/pscratch/sd/l/lingzhi/Projects/Qwen3.5-vLLM-inference"
 NODE_INFO="$WORKDIR/.node_info_multi"
 MODEL="/pscratch/sd/l/lingzhi/models/Qwen3.5-27B"
 
