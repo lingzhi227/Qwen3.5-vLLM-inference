@@ -102,7 +102,7 @@ for gpu_id in $(seq 0 $((NUM_GPUS_PER_NODE-1))); do
 
     info "Node 1 ($NODE_1): Starting GPU $gpu_id on port $port (log: $log)"
 
-    srun --jobid="$JOB_ID_1" --overlap -N 1 -n 1 --gpus=4 \
+    srun --jobid="$JOB_ID_1" --nodelist="$NODE_1" --overlap -N 1 -n 1 --gpus=4 \
         shifter --image="$VLLM_IMAGE" \
         bash -c "CUDA_VISIBLE_DEVICES=$gpu_id python3 -m vllm.entrypoints.openai.api_server ${COMMON_ARGS[*]} --port $port" \
         > "$log" 2>&1 &
@@ -117,7 +117,7 @@ for gpu_id in $(seq 0 $((NUM_GPUS_PER_NODE-1))); do
 
     info "Node 2 ($NODE_2): Starting GPU $gpu_id on port $port (log: $log)"
 
-    srun --jobid="$JOB_ID_2" --overlap -N 1 -n 1 --gpus=4 \
+    srun --jobid="$JOB_ID_2" --nodelist="$NODE_2" --overlap -N 1 -n 1 --gpus=4 \
         shifter --image="$VLLM_IMAGE" \
         bash -c "CUDA_VISIBLE_DEVICES=$gpu_id python3 -m vllm.entrypoints.openai.api_server ${COMMON_ARGS[*]} --port $port" \
         > "$log" 2>&1 &

@@ -7,9 +7,15 @@ __pycache__/
 **/cwl_workspace/
 **/cwl_workspaces/
 **/cwl_traces/
+**/cwl_output/
+**/bixbench_workspace/
 *_trace.json
+*_trace_*.json
 cwl_trace.json
 trace.json
+
+# Test output directories (timestamped)
+**/tests/20*
 
 # Test logs and runtime data
 test_logs/
@@ -17,5 +23,6 @@ stress_multi_logs/
 stress_workspaces*/
 stress_results/
 vllm_server*.log
+vllm_pcie*.log
 .node_info*
 .server_pid*

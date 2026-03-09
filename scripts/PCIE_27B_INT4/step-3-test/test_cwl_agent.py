@@ -6,6 +6,12 @@ The model gets 3 terminal tools (write_file, run_command, read_file) and must:
 2. Run cwltool
 3. Read error output, debug, fix, and retry
 4. Keep iterating until the workflow runs successfully
+
+Env vars:
+  VLLM_API_URL   - vLLM API base URL (default: http://localhost:8000/v1)
+  VLLM_MODEL     - Model name (default: auto-detect)
+  CWLTOOL_BIN    - cwltool binary path (default: cwltool)
+  CWL_OUTPUT_DIR - Output directory for all artifacts (default: ./cwl_output)
 """
 
 import json
@@ -21,15 +27,76 @@ from openai import OpenAI
 # ---------------------------------------------------------------------------
 BASE_URL = os.environ.get("VLLM_API_URL", "http://localhost:8000/v1")
 MODEL = os.environ.get("VLLM_MODEL", "Qwen/Qwen3.5-27B")
-WORK_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cwl_workspace")
 CWLTOOL_BIN = os.environ.get("CWLTOOL_BIN", "cwltool")
+OUTPUT_DIR = os.environ.get("CWL_OUTPUT_DIR",
+                            os.path.join(os.path.dirname(os.path.abspath(__file__)), "cwl_output"))
+WORK_DIR = os.path.join(OUTPUT_DIR, "cwl_workspace")
+
+
+# ---------------------------------------------------------------------------
+# Markdown trace writer
+# ---------------------------------------------------------------------------
+class MarkdownTrace:
+    """Writes streaming model output to trace.md in real time."""
+
+    def __init__(self, path):
+        self.path = path
+        self.f = open(path, "w", encoding="utf-8")
+        self.f.write(f"# CWL Agent Trace\n\n")
+        self.f.write(f"- **Model**: {MODEL}\n")
+        self.f.write(f"- **Server**: {BASE_URL}\n")
+        self.f.write(f"- **Started**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+        self.f.flush()
+
+    def round_header(self, round_num):
+        self.f.write(f"\n---\n\n## Round {round_num}\n\n")
+        self.f.flush()
+
+    def thinking(self, text):
+        self.f.write(text)
+        self.f.flush()
+
+    def thinking_start(self):
+        self.f.write("\n### Thinking\n\n```\n")
+        self.f.flush()
+
+    def thinking_end(self):
+        self.f.write("\n```\n\n")
+        self.f.flush()
+
+    def answer_start(self):
+        self.f.write("### Response\n\n")
+        self.f.flush()
+
+    def answer(self, text):
+        self.f.write(text)
+        self.f.flush()
+
+    def tool_call(self, name, args_str):
+        self.f.write(f"\n### Tool Call: `{name}`\n\n")
+        self.f.write(f"```json\n{args_str[:2000]}\n```\n\n")
+        self.f.flush()
+
+    def tool_result(self, result_str):
+        truncated = result_str[:2000]
+        if len(result_str) > 2000:
+            truncated += f"\n... (truncated, {len(result_str)} chars total)"
+        self.f.write(f"**Result:**\n```\n{truncated}\n```\n\n")
+        self.f.flush()
+
+    def summary(self, text):
+        self.f.write(f"\n---\n\n## Summary\n\n{text}\n")
+        self.f.flush()
+
+    def close(self):
+        self.f.close()
+
 
 # ---------------------------------------------------------------------------
 # Tool implementations — real terminal interaction
 # ---------------------------------------------------------------------------
 def write_file(path: str, content: str) -> dict:
     """Write content to a file in the workspace."""
-    # Sandbox: force files into WORK_DIR
     if not os.path.isabs(path):
         path = os.path.join(WORK_DIR, path)
     if not path.startswith(WORK_DIR):
@@ -42,7 +109,6 @@ def write_file(path: str, content: str) -> dict:
 
 def run_command(command: str) -> dict:
     """Run a shell command in the workspace directory."""
-    # Replace bare 'cwltool' with our venv path
     command = command.replace("cwltool", CWLTOOL_BIN)
     try:
         result = subprocess.run(
@@ -58,7 +124,6 @@ def run_command(command: str) -> dict:
             "stdout": result.stdout[-3000:] if result.stdout else "",
             "stderr": result.stderr[-3000:] if result.stderr else "",
         }
-        # Print live feedback
         status = "SUCCESS" if result.returncode == 0 else "FAILED"
         print(f"   [{status}] exit={result.returncode}")
         if result.stdout:
@@ -140,7 +205,7 @@ TOOLS = [
 ]
 
 # ---------------------------------------------------------------------------
-# Trace recorder
+# JSON trace recorder
 # ---------------------------------------------------------------------------
 class Trace:
     def __init__(self):
@@ -165,18 +230,19 @@ class Trace:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(output, f, ensure_ascii=False, indent=2)
         print(f"\n{'='*60}")
-        print(f"  Trace saved to {path}")
+        print(f"  JSON trace saved to {path}")
         print(f"{'='*60}")
 
 
 # ---------------------------------------------------------------------------
-# Streaming chat loop (same pattern as tool_demo.py)
+# Streaming chat loop
 # ---------------------------------------------------------------------------
-def stream_chat(client: OpenAI, messages: list, trace: Trace, round_num: int):
+def stream_chat(client: OpenAI, messages: list, trace: Trace, md: MarkdownTrace, round_num: int):
     print(f"\n{'='*60}")
     print(f"  Round {round_num}")
     print(f"{'='*60}")
 
+    md.round_header(round_num)
     trace.record("request", {"round": round_num, "message_count": len(messages)})
 
     stream = client.chat.completions.create(
@@ -191,19 +257,17 @@ def stream_chat(client: OpenAI, messages: list, trace: Trace, round_num: int):
     )
 
     # --- Accumulators ---
-    raw_content_parts = []    # everything in delta.content (includes <think> tags)
-    thinking_parts = []       # extracted thinking text
-    answer_parts = []         # extracted answer text (after </think>)
+    raw_content_parts = []
+    thinking_parts = []
+    answer_parts = []
     tool_calls_acc = {}
     finish_reason = None
 
-    # --- Streaming state machine ---
-    # vLLM strips the <think> special token but keeps </think> in content.
-    # So: content starts in thinking mode, </think> marks the transition.
-    # States: "thinking" -> "answering"
     state = "thinking"
     thinking_header_shown = False
     answer_header_shown = False
+    md_thinking_started = False
+    md_answer_started = False
 
     for chunk in stream:
         if not chunk.choices:
@@ -217,36 +281,52 @@ def stream_chat(client: OpenAI, messages: list, trace: Trace, round_num: int):
 
             if state == "thinking":
                 if "</think>" in text:
-                    # Split at </think> — before is last thinking, after is answer
                     before_end, after_end = text.split("</think>", 1)
                     if before_end:
-                        if not thinking_header_shown:
+                        if before_end.strip() and not thinking_header_shown:
                             print(f"\n\033[36m{'─'*40}\033[0m")
                             print(f"\033[36m  THINKING\033[0m")
                             print(f"\033[36m{'─'*40}\033[0m")
                             thinking_header_shown = True
+                        if not md_thinking_started:
+                            md.thinking_start()
+                            md_thinking_started = True
                         thinking_parts.append(before_end)
-                        sys.stdout.write(f"\033[90m{before_end}\033[0m")
-                        sys.stdout.flush()
+                        md.thinking(before_end)
+                        if thinking_header_shown:
+                            sys.stdout.write(f"\033[90m{before_end}\033[0m")
+                            sys.stdout.flush()
+                    if md_thinking_started:
+                        md.thinking_end()
                     state = "answering"
+                    after_end = after_end.lstrip("\n")
                     if after_end.strip():
                         print(f"\n\033[32m{'─'*40}\033[0m")
                         print(f"\033[32m  ANSWER\033[0m")
                         print(f"\033[32m{'─'*40}\033[0m")
                         answer_header_shown = True
+                        if not md_answer_started:
+                            md.answer_start()
+                            md_answer_started = True
                         answer_parts.append(after_end)
+                        md.answer(after_end)
                         sys.stdout.write(after_end)
                         sys.stdout.flush()
                 else:
-                    # Still thinking — show header on first content
                     if text.strip() and not thinking_header_shown:
                         print(f"\n\033[36m{'─'*40}\033[0m")
                         print(f"\033[36m  THINKING\033[0m")
                         print(f"\033[36m{'─'*40}\033[0m")
                         thinking_header_shown = True
+                    if not md_thinking_started and text.strip():
+                        md.thinking_start()
+                        md_thinking_started = True
                     thinking_parts.append(text)
-                    sys.stdout.write(f"\033[90m{text}\033[0m")
-                    sys.stdout.flush()
+                    if md_thinking_started:
+                        md.thinking(text)
+                    if thinking_header_shown:
+                        sys.stdout.write(f"\033[90m{text}\033[0m")
+                        sys.stdout.flush()
 
             elif state == "answering":
                 if text.strip() and not answer_header_shown:
@@ -254,11 +334,17 @@ def stream_chat(client: OpenAI, messages: list, trace: Trace, round_num: int):
                     print(f"\033[32m  ANSWER\033[0m")
                     print(f"\033[32m{'─'*40}\033[0m")
                     answer_header_shown = True
+                if not md_answer_started and text.strip():
+                    md.answer_start()
+                    md_answer_started = True
                 answer_parts.append(text)
-                sys.stdout.write(text)
-                sys.stdout.flush()
+                if md_answer_started:
+                    md.answer(text)
+                if answer_header_shown:
+                    sys.stdout.write(text)
+                    sys.stdout.flush()
 
-        # Tool calls come via separate delta field
+        # Tool calls
         if delta.tool_calls:
             for tc in delta.tool_calls:
                 idx = tc.index
@@ -272,14 +358,16 @@ def stream_chat(client: OpenAI, messages: list, trace: Trace, round_num: int):
                     if tc.function.arguments:
                         tool_calls_acc[idx]["arguments"] += tc.function.arguments
 
+    # Close any unclosed md sections
+    if md_thinking_started and state == "thinking":
+        md.thinking_end()
+
     # --- Build structured data ---
     full_thinking = "".join(thinking_parts)
     full_answer = "".join(answer_parts)
     full_content = "".join(raw_content_parts)
 
-    # Use answer only (strip thinking) for message history to save context
-    clean_content = full_answer if full_answer else full_content
-    assistant_msg = {"role": "assistant", "content": clean_content}
+    assistant_msg = {"role": "assistant", "content": full_content}
     tool_calls_list = []
     if tool_calls_acc:
         tool_calls_list = [
@@ -316,7 +404,9 @@ def stream_chat(client: OpenAI, messages: list, trace: Trace, round_num: int):
             except json.JSONDecodeError:
                 fn_args = {}
 
-            print(f"  \033[33m>\033[0m {fn_name}({json.dumps(fn_args, ensure_ascii=False)[:200]})")
+            args_display = json.dumps(fn_args, ensure_ascii=False)
+            print(f"  \033[33m>\033[0m {fn_name}({args_display[:200]})")
+            md.tool_call(fn_name, args_display)
 
             fn = TOOL_DISPATCH.get(fn_name)
             if fn:
@@ -329,6 +419,8 @@ def stream_chat(client: OpenAI, messages: list, trace: Trace, round_num: int):
                 print(f"  \033[33m<\033[0m ({len(result_str)} chars)")
             else:
                 print(f"  \033[33m<\033[0m {result_str}")
+
+            md.tool_result(result_str)
 
             trace.record("tool_execution", {
                 "round": round_num,
@@ -352,10 +444,10 @@ def stream_chat(client: OpenAI, messages: list, trace: Trace, round_num: int):
 # Main
 # ---------------------------------------------------------------------------
 def main():
-
-    # Prepare workspace
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
     os.makedirs(WORK_DIR, exist_ok=True)
-    # Clean previous runs
+
+    # Clean previous workspace files
     for f in os.listdir(WORK_DIR):
         fp = os.path.join(WORK_DIR, f)
         if os.path.isfile(fp):
@@ -363,6 +455,7 @@ def main():
 
     client = OpenAI(base_url=BASE_URL, api_key="empty")
     trace = Trace()
+    md = MarkdownTrace(os.path.join(OUTPUT_DIR, "trace.md"))
 
     # Verify server
     models = client.models.list()
@@ -412,8 +505,9 @@ def main():
 
     max_rounds = 20
     success = False
+    round_num = 0
     for round_num in range(1, max_rounds + 1):
-        finish_reason, had_tools = stream_chat(client, messages, trace, round_num)
+        finish_reason, had_tools = stream_chat(client, messages, trace, md, round_num)
 
         # Check if cwltool succeeded in this round
         for event in trace.events:
@@ -427,17 +521,19 @@ def main():
         if not had_tools:
             break
 
+    duration = time.time() - trace.start_time
+
     print(f"\n{'='*60}")
     if success:
         print("  RESULT: CWL workflow ran successfully!")
     else:
         print("  RESULT: CWL workflow did NOT succeed within max rounds")
     print(f"  Rounds used: {round_num}/{max_rounds}")
+    print(f"  Duration: {duration:.1f}s")
     print(f"{'='*60}")
 
-    # Save trace
-    trace_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cwl_trace.json")
-    trace.save(trace_path)
+    # Save JSON trace
+    trace.save(os.path.join(OUTPUT_DIR, "cwl_trace.json"))
 
     # Summary
     tool_calls = [e for e in trace.events if e["type"] == "tool_execution"]
@@ -445,12 +541,27 @@ def main():
                 and "cwltool" in str(e["data"].get("arguments", {}).get("command", ""))]
     file_writes = [e for e in tool_calls if e["data"].get("name") == "write_file"]
 
+    summary_text = (
+        f"- **Result**: {'SUCCESS' if success else 'FAILED'}\n"
+        f"- **Rounds**: {round_num}/{max_rounds}\n"
+        f"- **Duration**: {duration:.1f}s\n"
+        f"- **Total tool calls**: {len(tool_calls)}\n"
+        f"- **cwltool runs**: {len(cwl_runs)}\n"
+        f"- **File writes**: {len(file_writes)}\n"
+    )
+    md.summary(summary_text)
+    md.close()
+
     print(f"\n  Summary:")
     print(f"  - Total tool calls: {len(tool_calls)}")
     print(f"  - cwltool runs: {len(cwl_runs)}")
     print(f"  - File writes: {len(file_writes)}")
     print(f"  - Successful: {success}")
-    print(f"  - Duration: {trace.events[-1]['timestamp']:.1f}s")
+    print(f"  - Duration: {duration:.1f}s")
+    print(f"\n  Artifacts in: {OUTPUT_DIR}")
+    print(f"  - trace.md        (model streaming output)")
+    print(f"  - cwl_trace.json  (structured trace)")
+    print(f"  - cwl_workspace/  (generated CWL files)")
 
     return 0 if success else 1
 
